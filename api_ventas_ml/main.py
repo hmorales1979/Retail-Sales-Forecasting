@@ -5,7 +5,8 @@ import pandas as pd
 from fastapi import FastAPI
 from pydantic import BaseModel
 import numpy as np
-from pathlib import Path # Importación clave para rutas robustas
+from pathlib import Path 
+from fastapi.middleware.cors import CORSMiddleware # <--- NUEVA IMPORTACIÓN PARA CORS
 
 # ----------------------------------------------------------------------
 # 1. CONFIGURACIÓN INICIAL Y CARGA DE MODELOS
@@ -24,14 +25,29 @@ XGB_FEATURES = [
 # Inicializar FastAPI
 app = FastAPI()
 
-# Cargar los modelos al iniciar la aplicación (ROBUSTO)
+# --- CONFIGURACIÓN CORS (CRUCIAL PARA EL FRONTEND) ---
+# Permitir acceso desde cualquier origen ("*"). Si sabes la URL de tu hosting,
+# es más seguro reemplazar "*" por esa URL específica (ej: "https://mi-portal-web.com")
+origins = ["*"] 
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"], # Permitir todos los métodos (GET, POST, OPTIONS)
+    allow_headers=["*"], # Permitir todos los encabezados
+)
+# --- FIN CONFIGURACIÓN CORS ---
+
+
+# Cargar los modelos al iniciar la aplicación (CON RUTA CORREGIDA)
 try:
     # Carga usando la ruta completa (BASE_DIR / nombre_archivo)
     rl_model = joblib.load(BASE_DIR / 'modelo_regresion_lineal.joblib')
     xgb_model = joblib.load(BASE_DIR / 'modelo_xgboost.joblib')
     print("Modelos cargados exitosamente.")
 except Exception as e:
-    # Manejo de error si los archivos no se encuentran o están corruptos
+    # Este error ahora debería desaparecer tras el deploy
     print(f"Error al cargar modelos: {e}")
     rl_model = None
     xgb_model = None
@@ -78,13 +94,14 @@ def predict_ventas(data: PredictionRequest):
     df_xgb = pd.get_dummies(df_input.copy(), columns=['Mes', 'Dia_Semana'], drop_first=True)
     
     # Asegurar que el DataFrame de entrada tenga las mismas columnas que el entrenamiento (XGB_FEATURES)
-    # Rellenar con 0 si falta alguna columna (mes o día de la semana no visto)
+    # Rellenar con 0 si falta alguna columna
     df_xgb = df_xgb.reindex(columns=XGB_FEATURES, fill_value=0)
     
     # --- 3. Generar Predicciones ---
     
-    rl_pred = rl_model.predict(df_rl)[0].round(2)
-    xgb_pred = xgb_model.predict(df_xgb)[0].round(2)
+    # Convertir a float antes de predecir para compatibilidad con numpy/joblib
+    rl_pred = rl_model.predict(df_rl.astype(float))[0].round(2)
+    xgb_pred = xgb_model.predict(df_xgb.astype(float))[0].round(2)
 
     return {
         "status": "success",
